@@ -73,15 +73,6 @@ After a successful run, students receive:
 
 ---
 
-## 🧭 Suggested Classroom Flow
-
-- **Part A (10–15 min):** Explain ORFs, codons, and prokaryotic gene prediction.
-- **Part B (20–30 min):** Run the pipeline on a small bacterial genome.
-- **Part C (20 min):** Inspect `annotated_orfs.csv` and discuss hypothetical proteins vs known products.
-- **Part D (optional):** Compare annotation yield with/without API key and different genomes.
-
----
-
 ## 💡 Tips for Students
 
 - Use high-quality FASTA inputs to reduce "No hit" annotations.
