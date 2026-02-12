@@ -240,71 +240,65 @@ def annotate_ncbi(
 
     annotations: List[Dict[str, str]] = []
 
+    fallback = {
+        "accession": "",
+        "gene": "",
+        "organism": "",
+        "product": "No hit",
+    }
+
     for group in _batch(protein_records, batch_size):
-        terms = [f'"{seq}"[Sequence]' for _, seq in group if len(seq) >= 20]
-        if not terms:
-            continue
-        search_term = " OR ".join(terms)
+        for protein_id, seq in group:
+            if len(seq) < 20:
+                annotations.append({"orf_id": protein_id, **fallback})
+                continue
 
-        id_list: List[str] = []
-        for attempt in range(1, retries + 1):
-            try:
-                with Entrez.esearch(db="protein", term=search_term, retmax=batch_size * 5) as h:
-                    search_res = Entrez.read(h)
-                id_list = search_res.get("IdList", [])
-                break
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("NCBI esearch failed (attempt %s/%s): %s", attempt, retries, exc)
-                if attempt == retries:
-                    id_list = []
-                time.sleep(delay_s * attempt)
+            id_list: List[str] = []
+            for attempt in range(1, retries + 1):
+                try:
+                    with Entrez.esearch(db="protein", term=f'"{seq}"[Sequence]', retmax=5) as h:
+                        search_res = Entrez.read(h)
+                    id_list = search_res.get("IdList", [])
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("NCBI esearch failed for %s (attempt %s/%s): %s", protein_id, attempt, retries, exc)
+                    if attempt == retries:
+                        id_list = []
+                    time.sleep(delay_s * attempt)
 
-        if not id_list:
-            for protein_id, _ in group:
-                annotations.append(
-                    {
-                        "orf_id": protein_id,
-                        "accession": "",
-                        "gene": "",
-                        "organism": "",
-                        "product": "No hit",
-                    }
-                )
-            continue
+            if not id_list:
+                annotations.append({"orf_id": protein_id, **fallback})
+                continue
 
-        summaries: List[dict] = []
-        for attempt in range(1, retries + 1):
-            try:
-                with Entrez.esummary(db="protein", id=",".join(id_list)) as h:
-                    summary_res = Entrez.read(h)
-                summaries = summary_res if isinstance(summary_res, list) else summary_res.get("DocumentSummarySet", {}).get("DocumentSummary", [])
-                break
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("NCBI esummary failed (attempt %s/%s): %s", attempt, retries, exc)
-                if attempt == retries:
-                    summaries = []
-                time.sleep(delay_s * attempt)
+            summaries: List[dict] = []
+            for attempt in range(1, retries + 1):
+                try:
+                    with Entrez.esummary(db="protein", id=",".join(id_list)) as h:
+                        summary_res = Entrez.read(h)
+                    summaries = (
+                        summary_res
+                        if isinstance(summary_res, list)
+                        else summary_res.get("DocumentSummarySet", {}).get("DocumentSummary", [])
+                    )
+                    break
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("NCBI esummary failed for %s (attempt %s/%s): %s", protein_id, attempt, retries, exc)
+                    if attempt == retries:
+                        summaries = []
+                    time.sleep(delay_s * attempt)
 
-        fallback = {
-            "accession": "",
-            "gene": "",
-            "organism": "",
-            "product": "No hit",
-        }
-        best_hit = fallback
-        if summaries:
-            first = summaries[0]
-            best_hit = {
-                "accession": str(first.get("AccessionVersion", first.get("Caption", ""))),
-                "gene": str(first.get("Title", "")).split("[")[0].strip(),
-                "organism": str(first.get("TaxName", "")),
-                "product": str(first.get("Title", "")),
-            }
+            best_hit = fallback
+            if summaries:
+                first = summaries[0]
+                best_hit = {
+                    "accession": str(first.get("AccessionVersion", first.get("Caption", ""))),
+                    "gene": str(first.get("Title", "")).split("[")[0].strip(),
+                    "organism": str(first.get("TaxName", "")),
+                    "product": str(first.get("Title", "")),
+                }
 
-        for protein_id, _ in group:
             annotations.append({"orf_id": protein_id, **best_hit})
-
-        time.sleep(delay_s)
+            time.sleep(delay_s)
 
     return pd.DataFrame(annotations)
 
